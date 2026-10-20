@@ -1,0 +1,6 @@
+com\smarthome\db\Database.class
+com\smarthome\ui\DashboardFrame$1.class
+com\smarthome\dao\DeviceDao.class
+com\smarthome\model\Device.class
+com\smarthome\ui\DashboardFrame.class
+com\smarthome\Main.class

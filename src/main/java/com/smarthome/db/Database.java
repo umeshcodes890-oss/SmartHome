@@ -8,7 +8,7 @@ public final class Database {
     private static final String URL = System.getenv().getOrDefault(
         "SMART_HOME_DB_URL", "jdbc:mysql://localhost:3306/smart_home_db?useSSL=false&serverTimezone=UTC");
     private static final String USER = System.getenv().getOrDefault("SMART_HOME_DB_USER", "root");
-    private static final String PASSWORD = System.getenv().getOrDefault("SMART_HOME_DB_PASSWORD", "Umesh@123");
+    private static final String PASSWORD = System.getenv().getOrDefault("SMART_HOME_DB_PASSWORD", "Your_Password");
 
     private Database() {}
 

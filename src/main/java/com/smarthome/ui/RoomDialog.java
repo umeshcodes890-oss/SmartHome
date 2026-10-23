@@ -5,8 +5,6 @@ import java.awt.BorderLayout;
 import java.awt.Dialog;
 import java.awt.Font;
 import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
-import java.awt.Insets;
 import java.util.Optional;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -24,12 +22,11 @@ final class RoomDialog {
             Dialog.ModalityType.APPLICATION_MODAL);
         dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         dialog.setLayout(new BorderLayout(0, 12));
-        JPanel content = new JPanel(new GridBagLayout());
-        content.setBorder(BorderFactory.createEmptyBorder(20, 22, 10, 22));
+        JPanel content = UiStyle.formPanel();
         JTextField name = new JTextField(existing == null ? "" : existing.name(), 22);
         JTextField floor = new JTextField(existing == null ? "1" : Integer.toString(existing.floorNumber()), 22);
-        addField(content, 0, "Room name", name);
-        addField(content, 1, "Floor number", floor);
+        UiStyle.addFormField(content, 0, "Room name", name);
+        UiStyle.addFormField(content, 1, "Floor number", floor);
 
         JLabel heading = new JLabel(existing == null ? "Create a room" : "Update room details");
         heading.setFont(new Font("SansSerif", Font.BOLD, 17));
@@ -70,23 +67,6 @@ final class RoomDialog {
         dialog.setLocationRelativeTo(parent);
         dialog.setVisible(true);
         return Optional.ofNullable(result[0]);
-    }
-
-    private static void addField(JPanel form, int row, String label, JTextField field) {
-        GridBagConstraints constraints = new GridBagConstraints();
-        constraints.gridx = 0;
-        constraints.gridy = row;
-        constraints.anchor = GridBagConstraints.LINE_START;
-        constraints.insets = new Insets(8, 0, 8, 14);
-        JLabel caption = new JLabel(label);
-        caption.setForeground(UiStyle.MUTED);
-        form.add(caption, constraints);
-        constraints.gridx = 1;
-        constraints.weightx = 1;
-        constraints.fill = GridBagConstraints.HORIZONTAL;
-        constraints.insets = new Insets(8, 0, 8, 0);
-        field.setFont(new Font("SansSerif", Font.PLAIN, 13));
-        form.add(field, constraints);
     }
 
     private static void validation(JDialog dialog, String message, JTextField field) {

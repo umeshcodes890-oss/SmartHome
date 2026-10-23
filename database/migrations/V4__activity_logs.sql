@@ -1,3 +1,5 @@
+-- Apply after database/migrations/V3__device_schedules.sql.
+CREATE DATABASE IF NOT EXISTS smart_home_db;
 USE smart_home_db;
 
 CREATE TABLE IF NOT EXISTS activity_logs (

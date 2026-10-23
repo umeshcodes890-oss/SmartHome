@@ -1,3 +1,5 @@
+-- Apply after database/migrations/V2__energy_usage_history.sql.
+CREATE DATABASE IF NOT EXISTS smart_home_db;
 USE smart_home_db;
 
 CREATE TABLE IF NOT EXISTS device_schedules (
@@ -12,8 +14,8 @@ CREATE TABLE IF NOT EXISTS device_schedules (
   weekdays_mask TINYINT UNSIGNED NOT NULL DEFAULT 0,
   next_run_at DATETIME(6) NULL,
   enabled BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
-  updated_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
+  created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   CONSTRAINT fk_schedule_device FOREIGN KEY (device_id) REFERENCES devices(device_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
   INDEX idx_schedule_due (enabled, next_run_at),

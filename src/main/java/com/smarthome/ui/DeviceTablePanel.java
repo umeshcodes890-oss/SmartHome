@@ -45,11 +45,15 @@ final class DeviceTablePanel extends JPanel {
     private final JComboBox<String> typeFilter = new JComboBox<>(new String[]{"All types"});
     private final JComboBox<String> statusFilter = new JComboBox<>(new String[]{"All statuses", "ON", "OFF"});
     private final JLabel emptyMessage = new JLabel("No devices match these filters.", SwingConstants.CENTER);
+    private String loadState;
     private final java.awt.CardLayout tableLayout = new java.awt.CardLayout();
     private final JPanel tableContainer = new JPanel(tableLayout);
     private final Consumer<Device> onToggle;
     private final Consumer<Device> onEdit;
     private final Consumer<Device> onDelete;
+    private final JButton addButton = UiStyle.button("＋ Add device", true);
+    private final JButton editButton = UiStyle.button("Edit selected", false);
+    private final JButton deleteButton = UiStyle.button("Delete selected", false);
     private List<Device> devices = List.of();
     private boolean updatingOptions;
 
@@ -80,21 +84,18 @@ final class DeviceTablePanel extends JPanel {
         JButton refresh = UiStyle.button("Refresh", false);
         JButton allOn = UiStyle.button("All ON", false);
         JButton allOff = UiStyle.button("All OFF", false);
-        JButton edit = UiStyle.button("Edit selected", false);
-        JButton delete = UiStyle.button("Delete selected", false);
-        JButton add = UiStyle.button("＋ Add device", true);
         refresh.addActionListener(event -> onRefresh.run());
         allOn.addActionListener(event -> onBulkStatus.accept("ON"));
         allOff.addActionListener(event -> onBulkStatus.accept("OFF"));
-        edit.addActionListener(event -> selectedDevice().ifPresent(onEdit));
-        delete.addActionListener(event -> selectedDevice().ifPresent(onDelete));
-        add.addActionListener(event -> onAdd.run());
+        editButton.addActionListener(event -> selectedDevice().ifPresent(onEdit));
+        deleteButton.addActionListener(event -> selectedDevice().ifPresent(onDelete));
+        addButton.addActionListener(event -> onAdd.run());
         actions.add(refresh);
         actions.add(allOn);
         actions.add(allOff);
-        actions.add(edit);
-        actions.add(delete);
-        actions.add(add);
+        actions.add(editButton);
+        actions.add(deleteButton);
+        actions.add(addButton);
         heading.add(actions, BorderLayout.EAST);
         add(heading, BorderLayout.NORTH);
 
@@ -122,14 +123,8 @@ final class DeviceTablePanel extends JPanel {
         body.add(filters, BorderLayout.NORTH);
 
         table.setRowSorter(sorter);
+        UiStyle.styleTable(table);
         table.setRowHeight(48);
-        table.setFillsViewportHeight(true);
-        table.setShowVerticalLines(false);
-        table.setGridColor(UiStyle.BORDER);
-        table.setFont(new Font("SansSerif", Font.PLAIN, 12));
-        table.getTableHeader().setFont(new Font("SansSerif", Font.BOLD, 11));
-        table.getTableHeader().setBackground(UiStyle.TABLE_HEADER);
-        table.getTableHeader().setForeground(UiStyle.MUTED);
         table.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
         table.getColumnModel().getColumn(0).setMinWidth(0);
         table.getColumnModel().getColumn(0).setMaxWidth(0);
@@ -156,13 +151,30 @@ final class DeviceTablePanel extends JPanel {
         add(body, BorderLayout.CENTER);
     }
 
+    void setAdminMode(boolean admin) {
+        editButton.setVisible(admin);
+        deleteButton.setVisible(admin);
+        addButton.setVisible(admin);
+    }
+
     void setDevices(List<Device> newDevices) {
+        loadState = null;
         devices = List.copyOf(newDevices);
         model.setRowCount(0);
         for (Device device : devices) {
             model.addRow(new Object[]{device.getId(), new DeviceTypeIcon(device.getType()), device.getName(),
                 device.getType(), device.getRoom(), device.getStatus(), device.getPowerWatts()});
         }
+        applyFilters();
+    }
+
+    void setLoading() {
+        loadState = "Loading devices…";
+        applyFilters();
+    }
+
+    void setLoadError(String message) {
+        loadState = message;
         applyFilters();
     }
 
@@ -206,7 +218,8 @@ final class DeviceTablePanel extends JPanel {
                     && ("All statuses".equals(status) || status == null || status.equals(entry.getValue(5)));
             }
         });
-        emptyMessage.setText(devices.isEmpty() ? "No devices found. Add a device to get started."
+        emptyMessage.setText(loadState != null ? loadState : devices.isEmpty()
+            ? "No devices found. Add a device to get started."
             : "No devices match the selected search and filters.");
         tableLayout.show(tableContainer, table.getRowCount() == 0 ? "empty" : "results");
     }

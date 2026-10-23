@@ -31,7 +31,7 @@ public class ActivityLogDao {
         }
 
         StringBuilder sql = new StringBuilder(
-            "SELECT activity_id,event_type,device_id,device_name,schedule_id,occurred_at,outcome,details " +
+            "SELECT activity_id,event_type,user_id,device_id,device_name,schedule_id,occurred_at,outcome,details " +
             "FROM activity_logs WHERE 1=1");
         List<Object> parameters = new ArrayList<>();
         if (search != null && !search.isBlank()) {
@@ -77,7 +77,7 @@ public class ActivityLogDao {
         List<ActivityLog> entries = new ArrayList<>();
         try (Connection connection = Database.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                "SELECT activity_id,event_type,device_id,device_name,schedule_id,occurred_at,outcome,details " +
+                "SELECT activity_id,event_type,user_id,device_id,device_name,schedule_id,occurred_at,outcome,details " +
                 "FROM activity_logs ORDER BY occurred_at DESC,activity_id DESC LIMIT ?")) {
             statement.setInt(1, safeLimit);
             try (ResultSet results = statement.executeQuery()) {
@@ -109,17 +109,19 @@ public class ActivityLogDao {
 
     public static void insert(Connection connection, ActivityLog entry) throws SQLException {
         String sql = "INSERT INTO activity_logs " +
-            "(event_type,device_id,device_name,schedule_id,occurred_at,outcome,details) VALUES(?,?,?,?,?,?,?)";
+            "(event_type,user_id,device_id,device_name,schedule_id,occurred_at,outcome,details) VALUES(?,?,?,?,?,?,?,?)";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, entry.eventType());
-            if (entry.deviceId() == null) statement.setNull(2, java.sql.Types.INTEGER);
-            else statement.setLong(2, entry.deviceId());
-            statement.setString(3, entry.deviceName());
-            if (entry.scheduleId() == null) statement.setNull(4, java.sql.Types.BIGINT);
-            else statement.setLong(4, entry.scheduleId());
-            statement.setObject(5, LocalDateTime.ofInstant(entry.occurredAt(), ZoneOffset.UTC));
-            statement.setString(6, entry.outcome().name());
-            statement.setString(7, entry.details());
+            if (entry.userId() == null) statement.setNull(2, java.sql.Types.BIGINT);
+            else statement.setLong(2, entry.userId());
+            if (entry.deviceId() == null) statement.setNull(3, java.sql.Types.INTEGER);
+            else statement.setLong(3, entry.deviceId());
+            statement.setString(4, entry.deviceName());
+            if (entry.scheduleId() == null) statement.setNull(5, java.sql.Types.BIGINT);
+            else statement.setLong(5, entry.scheduleId());
+            statement.setObject(6, LocalDateTime.ofInstant(entry.occurredAt(), ZoneOffset.UTC));
+            statement.setString(7, entry.outcome().name());
+            statement.setString(8, entry.details());
             statement.executeUpdate();
         }
     }
@@ -135,12 +137,14 @@ public class ActivityLogDao {
     }
 
     private static ActivityLog map(ResultSet results) throws SQLException {
+        long rawUserId = results.getLong("user_id");
+        Long userId = results.wasNull() ? null : rawUserId;
         long rawDeviceId = results.getLong("device_id");
         Long deviceId = results.wasNull() ? null : rawDeviceId;
         long rawScheduleId = results.getLong("schedule_id");
         Long scheduleId = results.wasNull() ? null : rawScheduleId;
         LocalDateTime occurredAt = results.getObject("occurred_at", LocalDateTime.class);
-        return new ActivityLog(results.getLong("activity_id"), results.getString("event_type"),
+        return new ActivityLog(results.getLong("activity_id"), results.getString("event_type"), userId,
             deviceId, results.getString("device_name"), scheduleId,
             occurredAt.toInstant(ZoneOffset.UTC), ActivityLog.Outcome.valueOf(results.getString("outcome")),
             results.getString("details"));

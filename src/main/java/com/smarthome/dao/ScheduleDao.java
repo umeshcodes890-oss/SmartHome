@@ -30,7 +30,7 @@ public class ScheduleDao {
 
     public List<DeviceSchedule> findAll() throws SQLException {
         String sql = "SELECT s.schedule_id,s.device_id,d.device_name,s.schedule_name,s.action,s.repeat_type," +
-            "s.start_date,s.local_time,s.timezone_id,s.weekdays_mask,s.next_run_at,s.enabled " +
+            "s.created_by_user_id,s.start_date,s.local_time,s.timezone_id,s.weekdays_mask,s.next_run_at,s.enabled " +
             "FROM device_schedules s JOIN devices d ON d.device_id=s.device_id " +
             "ORDER BY s.enabled DESC,s.next_run_at,s.schedule_id DESC";
         List<DeviceSchedule> schedules = new ArrayList<>();
@@ -69,20 +69,42 @@ public class ScheduleDao {
     public long create(int deviceId, String scheduleName, String action, ScheduleRecurrence.Pattern pattern,
             LocalDate startDate, LocalTime localTime, ZoneId zone, Set<DayOfWeek> weekdays, Instant now)
             throws SQLException {
+        return create(deviceId, scheduleName, action, pattern, startDate, localTime, zone, weekdays, now, null);
+    }
+
+    public long create(int deviceId, String scheduleName, String action, ScheduleRecurrence.Pattern pattern,
+            LocalDate startDate, LocalTime localTime, ZoneId zone, Set<DayOfWeek> weekdays, Instant now,
+            Long actorUserId) throws SQLException {
         validate(deviceId, scheduleName, action, pattern, startDate, localTime, zone, weekdays);
         Instant next = ScheduleRecurrence.next(startDate, localTime, zone, pattern, weekdays, now.minusNanos(1));
         if (next == null) throw new IllegalArgumentException("This one-time schedule is already in the past.");
         int mask = weekdaysMask(weekdays);
-        String sql = "INSERT INTO device_schedules " +
-            "(device_id,schedule_name,action,repeat_type,start_date,local_time,timezone_id,weekdays_mask,next_run_at,enabled) " +
-            "VALUES(?,?,?,?,?,?,?,?,?,TRUE)";
-        try (Connection connection = Database.getConnection();
-             PreparedStatement statement = connection.prepareStatement(sql, PreparedStatement.RETURN_GENERATED_KEYS)) {
-            bindSchedule(statement, deviceId, scheduleName, action, pattern, startDate, localTime, zone, mask, next);
-            statement.executeUpdate();
-            try (ResultSet keys = statement.getGeneratedKeys()) {
-                if (!keys.next()) throw new SQLException("Schedule was saved but its ID could not be read.");
-                return keys.getLong(1);
+        try (Connection connection = Database.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                String sql = "INSERT INTO device_schedules " +
+                    "(device_id,created_by_user_id,schedule_name,action,repeat_type,start_date,local_time,timezone_id,weekdays_mask,next_run_at,enabled) " +
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,TRUE)";
+                long id;
+                try (PreparedStatement statement = connection.prepareStatement(sql, PreparedStatement.RETURN_GENERATED_KEYS)) {
+                    statement.setInt(1, deviceId);
+                    if (actorUserId == null) statement.setNull(2, java.sql.Types.BIGINT);
+                    else statement.setLong(2, actorUserId);
+                    bindSchedule(statement, 3, scheduleName, action, pattern, startDate, localTime, zone, mask, next);
+                    statement.executeUpdate();
+                    try (ResultSet keys = statement.getGeneratedKeys()) {
+                        if (!keys.next()) throw new SQLException("Schedule was saved but its ID could not be read.");
+                        id = keys.getLong(1);
+                    }
+                }
+                DeviceSchedule schedule = findById(connection, id, false);
+                logScheduleActivity(connection, "SCHEDULE_CREATED", actorUserId, schedule, now,
+                    "Schedule \"" + scheduleName.trim() + "\" created.");
+                connection.commit();
+                return id;
+            } catch (SQLException | RuntimeException ex) {
+                rollback(connection, ex);
+                throw ex;
             }
         }
     }
@@ -90,6 +112,12 @@ public class ScheduleDao {
     public void update(long id, int deviceId, String scheduleName, String action, ScheduleRecurrence.Pattern pattern,
             LocalDate startDate, LocalTime localTime, ZoneId zone, Set<DayOfWeek> weekdays, Instant now)
             throws SQLException {
+        update(id, deviceId, scheduleName, action, pattern, startDate, localTime, zone, weekdays, now, null);
+    }
+
+    public void update(long id, int deviceId, String scheduleName, String action, ScheduleRecurrence.Pattern pattern,
+            LocalDate startDate, LocalTime localTime, ZoneId zone, Set<DayOfWeek> weekdays, Instant now,
+            Long actorUserId) throws SQLException {
         validate(deviceId, scheduleName, action, pattern, startDate, localTime, zone, weekdays);
         try (Connection connection = Database.getConnection()) {
             connection.setAutoCommit(false);
@@ -106,12 +134,15 @@ public class ScheduleDao {
                     "local_time=?,timezone_id=?,weekdays_mask=?,next_run_at=?,enabled=?,updated_at=UTC_TIMESTAMP(6) " +
                     "WHERE schedule_id=?";
                 try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                    bindSchedule(statement, deviceId, scheduleName, action, pattern, startDate, localTime, zone,
+                    bindUpdatedSchedule(statement, deviceId, scheduleName, action, pattern, startDate, localTime, zone,
                         weekdaysMask(weekdays), next);
                     statement.setBoolean(10, existing.enabled());
                     statement.setLong(11, id);
                     statement.executeUpdate();
                 }
+                DeviceSchedule updated = findById(connection, id, false);
+                logScheduleActivity(connection, "SCHEDULE_UPDATED", actorUserId, updated, now,
+                    "Schedule \"" + scheduleName.trim() + "\" updated.");
                 connection.commit();
             } catch (SQLException | RuntimeException ex) {
                 rollback(connection, ex);
@@ -121,6 +152,10 @@ public class ScheduleDao {
     }
 
     public void setEnabled(long id, boolean enabled, Instant now) throws SQLException {
+        setEnabled(id, enabled, now, null);
+    }
+
+    public void setEnabled(long id, boolean enabled, Instant now, Long actorUserId) throws SQLException {
         try (Connection connection = Database.getConnection()) {
             connection.setAutoCommit(false);
             try {
@@ -136,6 +171,9 @@ public class ScheduleDao {
                     statement.setLong(3, id);
                     statement.executeUpdate();
                 }
+                logScheduleActivity(connection, enabled ? "SCHEDULE_ENABLED" : "SCHEDULE_DISABLED",
+                    actorUserId, schedule, now,
+                    "Schedule \"" + schedule.scheduleName() + "\" " + (enabled ? "enabled." : "disabled."));
                 connection.commit();
             } catch (SQLException | RuntimeException ex) {
                 rollback(connection, ex);
@@ -145,10 +183,27 @@ public class ScheduleDao {
     }
 
     public void delete(long id) throws SQLException {
-        try (Connection connection = Database.getConnection();
-             PreparedStatement statement = connection.prepareStatement("DELETE FROM device_schedules WHERE schedule_id=?")) {
-            statement.setLong(1, id);
-            if (statement.executeUpdate() != 1) throw new SQLException("Schedule not found.");
+        delete(id, null);
+    }
+
+    public void delete(long id, Long actorUserId) throws SQLException {
+        try (Connection connection = Database.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                DeviceSchedule schedule = findById(connection, id, true);
+                if (schedule == null) throw new SQLException("Schedule not found.");
+                logScheduleActivity(connection, "SCHEDULE_DELETED", actorUserId, schedule, Instant.now(),
+                    "Schedule \"" + schedule.scheduleName() + "\" deleted.");
+                try (PreparedStatement statement = connection.prepareStatement(
+                        "DELETE FROM device_schedules WHERE schedule_id=?")) {
+                    statement.setLong(1, id);
+                    statement.executeUpdate();
+                }
+                connection.commit();
+            } catch (SQLException | RuntimeException ex) {
+                rollback(connection, ex);
+                throw ex;
+            }
         }
     }
 
@@ -158,7 +213,7 @@ public class ScheduleDao {
             try {
                 List<DeviceSchedule> schedules = new ArrayList<>();
                 try (PreparedStatement statement = connection.prepareStatement(
-                        "SELECT s.schedule_id,s.device_id,d.device_name,s.schedule_name,s.action,s.repeat_type," +
+                        "SELECT s.schedule_id,s.device_id,d.device_name,s.schedule_name,s.action,s.repeat_type,s.created_by_user_id," +
                         "s.start_date,s.local_time,s.timezone_id,s.weekdays_mask,s.next_run_at,s.enabled " +
                         "FROM device_schedules s JOIN devices d ON d.device_id=s.device_id " +
                         "WHERE s.enabled=TRUE FOR UPDATE");
@@ -243,8 +298,8 @@ public class ScheduleDao {
                     setUtc(statement, 4, occurrence);
                     statement.executeUpdate();
                 }
-                ActivityLogDao.insert(connection, ActivityLog.success("SCHEDULE_EXECUTED",
-                    (long) schedule.deviceId(), schedule.deviceName(), schedule.id(), now,
+                        ActivityLogDao.insert(connection, ActivityLog.success("SCHEDULE_EXECUTED",
+                            schedule.createdByUserId(), (long) schedule.deviceId(), schedule.deviceName(), schedule.id(), now,
                     "Schedule \"" + schedule.scheduleName() + "\" set device status to " + schedule.action() + "."));
                 advanceAfterExecution(connection, schedule, now);
                 connection.commit();
@@ -282,8 +337,9 @@ public class ScheduleDao {
                     statement.setString(7, safeMessage(failure));
                     statement.executeUpdate();
                 }
-                ActivityLogDao.insert(connection, ActivityLog.failure("SCHEDULE_EXECUTED",
-                    (long) schedule.deviceId(), schedule.deviceName(), schedule.id(), now,
+                ActivityLogDao.insert(connection, new ActivityLog(0, "SCHEDULE_EXECUTED",
+                    schedule.createdByUserId(), (long) schedule.deviceId(), schedule.deviceName(), schedule.id(),
+                    now, ActivityLog.Outcome.FAILED,
                     "Schedule \"" + schedule.scheduleName() + "\" failed: " + safeMessage(failure)));
                 advanceAfterExecution(connection, schedule, now);
                 connection.commit();
@@ -318,14 +374,15 @@ public class ScheduleDao {
             setUtc(statement, 6, now);
             statement.executeUpdate();
         }
-        ActivityLogDao.insert(connection, ActivityLog.missed("SCHEDULE_EXECUTED",
-            (long) schedule.deviceId(), schedule.deviceName(), schedule.id(), now,
+        ActivityLogDao.insert(connection, new ActivityLog(0, "SCHEDULE_EXECUTED",
+            schedule.createdByUserId(), (long) schedule.deviceId(), schedule.deviceName(), schedule.id(),
+            now, ActivityLog.Outcome.MISSED,
             "Schedule \"" + schedule.scheduleName()
                 + "\" was missed because the application scheduler was not running."));
     }
 
     private DeviceSchedule findById(Connection connection, long id, boolean lock) throws SQLException {
-        String sql = "SELECT s.schedule_id,s.device_id,d.device_name,s.schedule_name,s.action,s.repeat_type," +
+        String sql = "SELECT s.schedule_id,s.device_id,d.device_name,s.schedule_name,s.action,s.repeat_type,s.created_by_user_id," +
             "s.start_date,s.local_time,s.timezone_id,s.weekdays_mask,s.next_run_at,s.enabled " +
             "FROM device_schedules s JOIN devices d ON d.device_id=s.device_id WHERE s.schedule_id=?" +
             (lock ? " FOR UPDATE" : "");
@@ -344,7 +401,9 @@ public class ScheduleDao {
             if ((mask & (1 << (day.getValue() - 1))) != 0) weekdays.add(day);
         }
         LocalDateTime next = results.getObject("next_run_at", LocalDateTime.class);
-        return new DeviceSchedule(results.getLong("schedule_id"), results.getInt("device_id"),
+        long rawCreatorId = results.getLong("created_by_user_id");
+        Long creatorId = results.wasNull() ? null : rawCreatorId;
+        return new DeviceSchedule(results.getLong("schedule_id"), results.getInt("device_id"), creatorId,
             results.getString("device_name"), results.getString("schedule_name"), results.getString("action"),
             ScheduleRecurrence.Pattern.valueOf(results.getString("repeat_type")),
             results.getObject("start_date", LocalDate.class), results.getObject("local_time", LocalTime.class),
@@ -352,7 +411,7 @@ public class ScheduleDao {
             next == null ? null : toInstant(next), results.getBoolean("enabled"));
     }
 
-    private void bindSchedule(PreparedStatement statement, int deviceId, String scheduleName, String action,
+    private void bindUpdatedSchedule(PreparedStatement statement, int deviceId, String scheduleName, String action,
             ScheduleRecurrence.Pattern pattern, LocalDate startDate, LocalTime localTime, ZoneId zone,
             int weekdaysMask, Instant next) throws SQLException {
         statement.setInt(1, deviceId);
@@ -364,6 +423,25 @@ public class ScheduleDao {
         statement.setString(7, zone.getId());
         statement.setInt(8, weekdaysMask);
         setUtc(statement, 9, next);
+    }
+
+    private void bindSchedule(PreparedStatement statement, int startIndex, String scheduleName, String action,
+            ScheduleRecurrence.Pattern pattern, LocalDate startDate, LocalTime localTime, ZoneId zone,
+            int weekdaysMask, Instant next) throws SQLException {
+        statement.setString(startIndex, scheduleName.trim());
+        statement.setString(startIndex + 1, action);
+        statement.setString(startIndex + 2, pattern.name());
+        statement.setObject(startIndex + 3, startDate);
+        statement.setObject(startIndex + 4, localTime);
+        statement.setString(startIndex + 5, zone.getId());
+        statement.setInt(startIndex + 6, weekdaysMask);
+        setUtc(statement, startIndex + 7, next);
+    }
+
+    private void logScheduleActivity(Connection connection, String eventType, Long actorUserId,
+            DeviceSchedule schedule, Instant occurredAt, String details) throws SQLException {
+        ActivityLogDao.insert(connection, ActivityLog.success(eventType, actorUserId,
+            (long) schedule.deviceId(), schedule.deviceName(), schedule.id(), occurredAt, details));
     }
 
     private void validate(int deviceId, String scheduleName, String action, ScheduleRecurrence.Pattern pattern,

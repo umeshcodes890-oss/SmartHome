@@ -2,14 +2,23 @@ package com.smarthome.ui;
 
 import com.smarthome.model.Device;
 import com.smarthome.model.RoomSummary;
+import com.smarthome.model.SensorReading;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Font;
 import java.math.BigDecimal;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.Instant;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.EnumMap;
 import java.util.function.Consumer;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
@@ -22,8 +31,18 @@ final class DashboardPanel extends JPanel {
     private final JPanel quickControls = new JPanel();
     private final JPanel rooms = new JPanel();
     private final JPanel activity = new JPanel();
+    private final JPanel sensorReadings = new JPanel();
+    private final JLabel dataState = new JLabel("Dashboard data is loaded from MySQL.");
+    private final JLabel lastRefresh = new JLabel("Last refreshed: not yet");
+    private final JLabel sensorState = new JLabel("No sensor readings are available.");
+    private final JComboBox<Integer> refreshInterval = new JComboBox<>(new Integer[]{5, 10, 15, 30, 60});
+    private final JCheckBox simulatorEnabled = new JCheckBox("Generate simulated readings");
+    private final JComboBox<Integer> simulatorInterval = new JComboBox<>(new Integer[]{15, 30, 60, 120});
+    private final Consumer<MonitoringSettings> onMonitoringSettings;
+    private boolean updatingMonitoringControls;
 
-    DashboardPanel(Consumer<Device> onToggle) {
+    DashboardPanel(Consumer<Device> onToggle, Consumer<MonitoringSettings> onMonitoringSettings) {
+        this.onMonitoringSettings = onMonitoringSettings;
         setLayout(new BorderLayout(0, 18));
         setBackground(UiStyle.WORKSPACE);
         setBorder(BorderFactory.createEmptyBorder(24, 28, 24, 28));
@@ -38,8 +57,46 @@ final class DashboardPanel extends JPanel {
         JLabel subtitle = new JLabel("Here is what is happening across your home.");
         subtitle.setFont(new Font("SansSerif", Font.PLAIN, 12));
         subtitle.setForeground(UiStyle.MUTED);
+        dataState.setFont(new Font("SansSerif", Font.PLAIN, 11));
+        dataState.setForeground(UiStyle.MUTED);
         intro.add(headline, BorderLayout.NORTH);
-        intro.add(subtitle, BorderLayout.SOUTH);
+        JPanel introDetails = new JPanel(new java.awt.GridLayout(0, 1, 0, 3));
+        introDetails.setOpaque(false);
+        introDetails.add(subtitle);
+        introDetails.add(dataState);
+        lastRefresh.setForeground(UiStyle.MUTED);
+        lastRefresh.setFont(new Font("SansSerif", Font.PLAIN, 11));
+        introDetails.add(lastRefresh);
+        intro.add(introDetails, BorderLayout.SOUTH);
+        JPanel controls = new JPanel(new java.awt.GridLayout(0, 1, 0, 5));
+        controls.setOpaque(false);
+        JPanel refreshControl = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 6, 0));
+        refreshControl.setOpaque(false);
+        JLabel refreshLabel = new JLabel("Refresh (sec)");
+        refreshLabel.setForeground(UiStyle.MUTED);
+        refreshControl.add(refreshLabel);
+        UiStyle.styleControl(refreshInterval);
+        refreshControl.add(refreshInterval);
+        controls.add(refreshControl);
+        JPanel simulatorControl = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 6, 0));
+        simulatorControl.setOpaque(false);
+        simulatorEnabled.setOpaque(false);
+        simulatorEnabled.setForeground(UiStyle.TEXT);
+        simulatorEnabled.setToolTipText("Creates clearly labelled simulated readings; no physical sensors are connected.");
+        simulatorControl.add(simulatorEnabled);
+        JLabel every = new JLabel("every");
+        every.setForeground(UiStyle.MUTED);
+        simulatorControl.add(every);
+        UiStyle.styleControl(simulatorInterval);
+        simulatorControl.add(simulatorInterval);
+        JLabel seconds = new JLabel("sec");
+        seconds.setForeground(UiStyle.MUTED);
+        simulatorControl.add(seconds);
+        controls.add(simulatorControl);
+        intro.add(controls, BorderLayout.EAST);
+        refreshInterval.addActionListener(event -> publishMonitoringSettings());
+        simulatorEnabled.addActionListener(event -> publishMonitoringSettings());
+        simulatorInterval.addActionListener(event -> publishMonitoringSettings());
 
         JPanel stats = new JPanel(new java.awt.GridLayout(1, 4, 14, 0));
         stats.setOpaque(false);
@@ -69,10 +126,34 @@ final class DashboardPanel extends JPanel {
         activityCard.add(activityTitle, BorderLayout.NORTH);
         activityCard.add(activity, BorderLayout.CENTER);
 
-        JPanel vertical = new JPanel(new BorderLayout(0, 16));
+        JPanel sensorCard = UiStyle.card();
+        sensorCard.setLayout(new BorderLayout(0, 10));
+        JLabel sensorTitle = new JLabel("Room sensors · simulated data is labelled");
+        sensorTitle.setFont(new Font("SansSerif", Font.BOLD, 14));
+        sensorTitle.setForeground(UiStyle.TEXT);
+        sensorReadings.setLayout(new java.awt.GridLayout(0, 1, 0, 8));
+        sensorReadings.setOpaque(false);
+        sensorState.setFont(new Font("SansSerif", Font.PLAIN, 11));
+        sensorState.setForeground(UiStyle.MUTED);
+        JPanel sensorBody = new JPanel(new BorderLayout(0, 8));
+        sensorBody.setOpaque(false);
+        sensorBody.add(sensorState, BorderLayout.NORTH);
+        sensorBody.add(sensorReadings, BorderLayout.CENTER);
+        sensorCard.add(sensorTitle, BorderLayout.NORTH);
+        sensorCard.add(sensorBody, BorderLayout.CENTER);
+
+        JPanel vertical = new JPanel();
+        vertical.setLayout(new javax.swing.BoxLayout(vertical, javax.swing.BoxLayout.Y_AXIS));
         vertical.setOpaque(false);
-        vertical.add(lower, BorderLayout.NORTH);
-        vertical.add(activityCard, BorderLayout.CENTER);
+        lower.setAlignmentX(LEFT_ALIGNMENT);
+        sensorCard.setAlignmentX(LEFT_ALIGNMENT);
+        activityCard.setAlignmentX(LEFT_ALIGNMENT);
+        lower.setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE, 280));
+        vertical.add(lower);
+        vertical.add(javax.swing.Box.createVerticalStrut(14));
+        vertical.add(sensorCard);
+        vertical.add(javax.swing.Box.createVerticalStrut(14));
+        vertical.add(activityCard);
         content.add(vertical, BorderLayout.CENTER);
         add(new JScrollPane(content, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
             JScrollPane.HORIZONTAL_SCROLLBAR_NEVER), BorderLayout.CENTER);
@@ -81,8 +162,30 @@ final class DashboardPanel extends JPanel {
         ((JScrollPane) getComponent(0)).setOpaque(false);
     }
 
+    void setMonitoringSettings(MonitoringSettings settings) {
+        updatingMonitoringControls = true;
+        try {
+            refreshInterval.setSelectedItem(settings.refreshSeconds());
+            simulatorEnabled.setSelected(settings.simulatorEnabled());
+            simulatorInterval.setSelectedItem(settings.simulatorIntervalSeconds());
+        } finally {
+            updatingMonitoringControls = false;
+        }
+    }
+
+    private void publishMonitoringSettings() {
+        if (updatingMonitoringControls) return;
+        Integer refresh = (Integer) refreshInterval.getSelectedItem();
+        Integer sample = (Integer) simulatorInterval.getSelectedItem();
+        if (refresh != null && sample != null) {
+            onMonitoringSettings.accept(new MonitoringSettings(refresh, simulatorEnabled.isSelected(), sample));
+        }
+    }
+
     void setData(List<Device> devices, List<RoomSummary> roomSummaries, List<String> recentActivity,
             Consumer<Device> onToggle) {
+        dataState.setText(devices.isEmpty() ? "No devices are registered yet."
+            : "Live summary · " + devices.size() + " device(s)");
         int active = 0;
         BigDecimal activePower = BigDecimal.ZERO;
         for (Device device : devices) {
@@ -90,7 +193,8 @@ final class DashboardPanel extends JPanel {
                 active++;
                 if (device.getPowerWatts() != null) activePower = activePower.add(device.getPowerWatts());
             }
-        }
+
+                }
         totalCard.setValue(Integer.toString(devices.size()));
         activeCard.setValue(Integer.toString(active));
         inactiveCard.setValue(Integer.toString(devices.size() - active));
@@ -160,6 +264,80 @@ final class DashboardPanel extends JPanel {
         revalidate();
         repaint();
     }
+
+    void setLoading() { dataState.setText("Loading dashboard data…"); }
+    void setLoadError(String message) { dataState.setText(message); }
+    void setSensorError(String message) {
+        sensorReadings.removeAll();
+        sensorState.setText(message);
+        sensorReadings.revalidate();
+        sensorReadings.repaint();
+    }
+    void setSensors(List<SensorReading> readings) {
+        sensorReadings.removeAll();
+        if (readings.isEmpty()) {
+            sensorState.setText("No readings yet. Enable the simulator or connect a sensor source.");
+        } else {
+            Map<Integer, RoomSensorSummary> byRoom = new LinkedHashMap<>();
+            for (SensorReading reading : readings) {
+                RoomSensorSummary room = byRoom.computeIfAbsent(reading.roomId(),
+                    ignored -> new RoomSensorSummary(reading.roomName()));
+                room.values.put(reading.type(), reading);
+            }
+            sensorState.setText(byRoom.size() + " room(s) with recent readings; generated values are clearly labelled.");
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                .withZone(ZoneId.systemDefault());
+            for (RoomSensorSummary room : byRoom.values()) {
+                JPanel item = new JPanel(new BorderLayout(0, 7));
+                item.setBackground(UiStyle.SURFACE);
+                item.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(UiStyle.BORDER),
+                    BorderFactory.createEmptyBorder(9, 12, 9, 12)));
+                Instant last = null;
+                boolean simulated = false;
+                for (SensorReading reading : room.values.values()) {
+                    if (last == null || reading.recordedAt().isAfter(last)) last = reading.recordedAt();
+                    simulated |= reading.simulated();
+                }
+                JLabel title = new JLabel(room.name + "  ·  Last reading " + formatter.format(last)
+                    + (simulated ? "  ·  SIMULATED" : ""));
+                title.setFont(new Font("SansSerif", Font.BOLD, 11));
+                title.setForeground(simulated ? UiStyle.BLUE : UiStyle.TEXT);
+                JPanel values = new JPanel(new java.awt.GridLayout(1, 3, 8, 0));
+                values.setOpaque(false);
+                values.add(sensorValue(room, SensorReading.Type.TEMPERATURE, "Temperature"));
+                values.add(sensorValue(room, SensorReading.Type.HUMIDITY, "Humidity"));
+                values.add(sensorValue(room, SensorReading.Type.MOTION, "Motion"));
+                item.add(title, BorderLayout.NORTH);
+                item.add(values, BorderLayout.CENTER);
+                sensorReadings.add(item);
+            }
+        }
+        sensorReadings.revalidate();
+        sensorReadings.repaint();
+    }
+
+    private static JLabel sensorValue(RoomSensorSummary room, SensorReading.Type type, String label) {
+        SensorReading reading = room.values.get(type);
+        String source = reading != null && reading.simulated() ? " · SIMULATED" : "";
+        JLabel value = new JLabel(label + ": " + (reading == null ? "—" : reading.formattedValue() + source));
+        value.setFont(new Font("SansSerif", Font.PLAIN, 11));
+        value.setForeground(reading != null && reading.simulated() ? UiStyle.BLUE : UiStyle.TEXT);
+        return value;
+    }
+
+    private static final class RoomSensorSummary {
+        private final String name;
+        private final EnumMap<SensorReading.Type, SensorReading> values =
+            new EnumMap<>(SensorReading.Type.class);
+        RoomSensorSummary(String name) { this.name = name; }
+    }
+    void setLastRefreshed(java.time.Instant instant) {
+        lastRefresh.setText("Last refreshed: " + DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+            .withZone(ZoneId.systemDefault()).format(instant));
+    }
+
+    record MonitoringSettings(int refreshSeconds, boolean simulatorEnabled, int simulatorIntervalSeconds) {}
 
     private JPanel section(String title, JPanel body) {
         JPanel card = UiStyle.card();

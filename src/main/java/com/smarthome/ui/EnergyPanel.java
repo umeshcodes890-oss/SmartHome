@@ -35,6 +35,7 @@ final class EnergyPanel extends JPanel {
     private final JComboBox<RoomOption> room = new JComboBox<>();
     private final JTextField tariff = new JTextField(9);
     private final JLabel historyNote = new JLabel("Energy is estimated from rated watts and tracked ON time, not meter readings.");
+    private final JLabel reportState = new JLabel("Energy report is based on tracked runtime estimates.");
     private final StatisticCard activePower = new StatisticCard("Active rated power", UiStyle.BLUE);
     private final StatisticCard usage = new StatisticCard("Estimated energy", UiStyle.GREEN);
     private final StatisticCard cost = new StatisticCard("Estimated cost", UiStyle.TEXT);
@@ -65,7 +66,13 @@ final class EnergyPanel extends JPanel {
         subtitle.setFont(new Font("SansSerif", Font.PLAIN, 12));
         titleArea.add(title, BorderLayout.NORTH);
         titleArea.add(subtitle, BorderLayout.SOUTH);
-        content.add(titleArea, BorderLayout.NORTH);
+        reportState.setForeground(UiStyle.MUTED);
+        reportState.setFont(new Font("SansSerif", Font.PLAIN, 11));
+        JPanel titleStack = new JPanel(new BorderLayout(0, 4));
+        titleStack.setOpaque(false);
+        titleStack.add(titleArea, BorderLayout.NORTH);
+        titleStack.add(reportState, BorderLayout.SOUTH);
+        content.add(titleStack, BorderLayout.NORTH);
 
         JPanel main = new JPanel(new BorderLayout(0, 14));
         main.setOpaque(false);
@@ -160,6 +167,8 @@ final class EnergyPanel extends JPanel {
 
     void setReport(EnergyReport value) {
         report = value;
+        reportState.setText(value.historyAvailable() ? "Report loaded · energy values are estimates."
+            : "No historical runtime is available for this range.");
         activePower.setValue(value.activeRatedWatts().stripTrailingZeros().toPlainString() + " W");
         usage.setValue(value.historyAvailable()
             ? value.estimatedKilowattHours().stripTrailingZeros().toPlainString() + " kWh" : "No history");
@@ -173,6 +182,9 @@ final class EnergyPanel extends JPanel {
         setBreakdown(roomModel, value.activeByRoom());
         setBreakdown(typeModel, value.activeByType());
     }
+
+    void setLoading() { reportState.setText("Loading energy usage report…"); }
+    void setLoadError(String message) { reportState.setText(message); }
 
     EnergyReport report() { return report; }
 
@@ -218,11 +230,7 @@ final class EnergyPanel extends JPanel {
     }
 
     private void styleControl(JComponent component) {
-        component.setFont(new Font("SansSerif", Font.PLAIN, 11));
-        component.setForeground(UiStyle.TEXT);
-        component.setBackground(UiStyle.SURFACE);
-        component.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(UiStyle.BORDER), BorderFactory.createEmptyBorder(5, 8, 5, 8)));
+        UiStyle.styleControl(component);
     }
 
     private JLabel caption(String text) {
@@ -239,13 +247,7 @@ final class EnergyPanel extends JPanel {
         label.setFont(new Font("SansSerif", Font.BOLD, 13));
         label.setForeground(UiStyle.TEXT);
         JTable table = new JTable(model);
-        table.setRowHeight(30);
-        table.setFont(new Font("SansSerif", Font.PLAIN, 11));
-        table.setShowVerticalLines(false);
-        table.setGridColor(UiStyle.BORDER);
-        table.getTableHeader().setFont(new Font("SansSerif", Font.BOLD, 10));
-        table.getTableHeader().setForeground(UiStyle.MUTED);
-        table.getTableHeader().setBackground(UiStyle.TABLE_HEADER);
+        UiStyle.styleTable(table);
         card.add(label, BorderLayout.NORTH);
         card.add(new JScrollPane(table), BorderLayout.CENTER);
         return card;

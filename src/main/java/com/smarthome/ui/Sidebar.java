@@ -12,10 +12,12 @@ import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.plaf.basic.BasicButtonUI;
 
 final class Sidebar extends JPanel {
     private final Map<String, JButton> navigation = new LinkedHashMap<>();
     private final Consumer<String> onNavigate;
+    private boolean adminMode;
 
     Sidebar(Consumer<String> onNavigate) {
         this.onNavigate = onNavigate;
@@ -45,15 +47,23 @@ final class Sidebar extends JPanel {
 
         JPanel links = new JPanel(new GridLayout(0, 1, 0, 7));
         links.setOpaque(false);
-        String[] pages = {"Dashboard", "Devices", "Rooms", "Energy Usage", "Schedules", "Activity Logs", "Settings"};
-        for (String page : pages) {
+        String[] pages = {"Dashboard", "Devices", "Rooms", "Energy Usage", "Sensor Monitoring", "Schedules",
+            "Automation Rules", "Activity Logs", "User Management", "Settings"};
+        for (int index = 0; index < pages.length; index++) {
+            String page = pages[index];
             JButton button = new JButton(page);
+            button.setUI(new BasicButtonUI());
+            button.setOpaque(true);
+            button.setContentAreaFilled(true);
             button.setHorizontalAlignment(JButton.LEFT);
             button.setFont(new Font("SansSerif", Font.PLAIN, 13));
-            button.setForeground(new Color(205, 220, 215));
+            button.setForeground(new Color(210, 220, 233));
             button.setBackground(UiStyle.NAVY);
-            button.setFocusPainted(false);
-            button.setBorder(BorderFactory.createEmptyBorder(12, 13, 12, 10));
+            button.setFocusPainted(true);
+            button.setBorder(BorderFactory.createEmptyBorder(12, 16, 12, 10));
+            String shortcut = index < 9 ? Integer.toString(index + 1) : "0";
+            button.setToolTipText("Open " + page + " (Alt+" + shortcut + ")");
+            button.getAccessibleContext().setAccessibleName(page);
             button.addActionListener(event -> onNavigate.accept(page));
             navigation.put(page, button);
             links.add(button);
@@ -67,12 +77,31 @@ final class Sidebar extends JPanel {
         select("Dashboard");
     }
 
+    void setAdminMode(boolean admin) {
+        adminMode = admin;
+        navigation.get("Schedules").setVisible(admin);
+        navigation.get("Automation Rules").setVisible(admin);
+        navigation.get("Activity Logs").setVisible(admin);
+        navigation.get("User Management").setVisible(admin);
+        revalidate();
+    }
+
     void select(String page) {
         navigation.forEach((name, button) -> {
             boolean selected = name.equals(page);
             button.setBackground(selected ? UiStyle.NAVY_LIGHT : UiStyle.NAVY);
-            button.setForeground(selected ? Color.WHITE : new Color(205, 220, 215));
+            button.setForeground(selected ? Color.WHITE : new Color(210, 220, 233));
             button.setFont(new Font("SansSerif", selected ? Font.BOLD : Font.PLAIN, 13));
+            button.setBorder(selected
+                ? BorderFactory.createCompoundBorder(BorderFactory.createMatteBorder(0, 3, 0, 0, UiStyle.BLUE),
+                    BorderFactory.createEmptyBorder(12, 13, 12, 10))
+                : BorderFactory.createEmptyBorder(12, 16, 12, 10));
         });
+    }
+
+    void refreshTheme(String selectedPage) {
+        setBackground(UiStyle.NAVY);
+        select(selectedPage);
+        repaint();
     }
 }

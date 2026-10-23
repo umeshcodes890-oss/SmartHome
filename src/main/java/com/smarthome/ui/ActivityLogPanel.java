@@ -37,6 +37,7 @@ final class ActivityLogPanel extends JPanel {
         "DEVICE_DELETED", "SCHEDULE_EXECUTED", "OPERATION_FAILED"
     });
     private final JLabel pageLabel = new JLabel("Page 1");
+    private final JLabel state = new JLabel("Activity data is loaded from MySQL.");
     private final JButton previous = UiStyle.button("Previous", false);
     private final JButton next = UiStyle.button("Next", false);
     private final LogTableModel tableModel = new LogTableModel();
@@ -65,18 +66,13 @@ final class ActivityLogPanel extends JPanel {
         JButton clear = UiStyle.button("Clear", false);
         filters.add(apply);
         filters.add(clear);
+        UiStyle.styleControl(search);
+        UiStyle.styleControl(fromDate);
+        UiStyle.styleControl(throughDate);
+        UiStyle.styleControl(eventType);
 
         JTable table = new JTable(tableModel);
-        table.setRowHeight(36);
-        table.setFont(new Font("SansSerif", Font.PLAIN, 12));
-        table.setForeground(UiStyle.TEXT);
-        table.setBackground(UiStyle.SURFACE);
-        table.setGridColor(UiStyle.BORDER);
-        table.setSelectionBackground(UiStyle.BLUE_PALE);
-        table.setSelectionForeground(UiStyle.TEXT);
-        table.getTableHeader().setFont(new Font("SansSerif", Font.BOLD, 11));
-        table.getTableHeader().setForeground(UiStyle.MUTED);
-        table.getTableHeader().setBackground(UiStyle.TABLE_HEADER);
+        UiStyle.styleTable(table);
         table.getColumnModel().getColumn(3).setCellRenderer(new OutcomeRenderer());
         JPanel paging = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         paging.setOpaque(false);
@@ -84,7 +80,13 @@ final class ActivityLogPanel extends JPanel {
         paging.add(pageLabel);
         paging.add(next);
         card.add(filters, BorderLayout.NORTH);
-        card.add(new JScrollPane(table), BorderLayout.CENTER);
+        state.setForeground(UiStyle.MUTED);
+        state.setFont(new Font("SansSerif", Font.PLAIN, 11));
+        JPanel data = new JPanel(new BorderLayout(0, 8));
+        data.setOpaque(false);
+        data.add(state, BorderLayout.NORTH);
+        data.add(new JScrollPane(table), BorderLayout.CENTER);
+        card.add(data, BorderLayout.CENTER);
         card.add(paging, BorderLayout.SOUTH);
         add(card, BorderLayout.CENTER);
 
@@ -133,11 +135,16 @@ final class ActivityLogPanel extends JPanel {
 
     void setPage(ActivityLogDao.Page page) {
         tableModel.setEntries(page.entries());
+        state.setText(page.entries().isEmpty() ? "No activity matches the selected filters."
+            : page.entries().size() + " activity event(s) loaded.");
         hasNext = page.hasNext();
         previous.setEnabled(offset > 0);
         next.setEnabled(hasNext);
         pageLabel.setText("Page " + (offset / ActivityLogDao.PAGE_SIZE + 1));
     }
+
+    void setLoading() { state.setText("Loading activity logs…"); }
+    void setLoadError(String message) { state.setText(message); }
 
     private static LocalDate parseDate(String value, String description) {
         if (value == null || value.isBlank()) return null;
@@ -158,13 +165,13 @@ final class ActivityLogPanel extends JPanel {
     record Filter(String search, String eventType, LocalDate from, LocalDate through, int offset) {}
 
     private static final class LogTableModel extends DefaultTableModel {
-        LogTableModel() { super(new Object[]{"Event", "Device", "Timestamp", "Outcome", "Details"}, 0); }
+        LogTableModel() { super(new Object[]{"Event", "User ID", "Device", "Timestamp", "Outcome", "Details"}, 0); }
         @Override public boolean isCellEditable(int row, int column) { return false; }
 
         void setEntries(List<ActivityLog> entries) {
             setRowCount(0);
             for (ActivityLog entry : entries) {
-                addRow(new Object[]{entry.eventType(),
+                addRow(new Object[]{entry.eventType(), entry.userId() == null ? "System" : entry.userId(),
                     entry.deviceName() == null ? "—" : entry.deviceName(),
                     DISPLAY_TIME.format(entry.occurredAt()),
                     entry.outcome().name(), entry.details() == null ? "" : entry.details()});

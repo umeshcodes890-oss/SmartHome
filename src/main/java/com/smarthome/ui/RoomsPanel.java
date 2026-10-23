@@ -13,6 +13,7 @@ import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JSplitPane;
 import javax.swing.JTable;
 import javax.swing.table.DefaultTableModel;
 
@@ -29,7 +30,9 @@ final class RoomsPanel extends JPanel {
     private final Consumer<Room> onSelect;
     private final Consumer<Room> onEdit;
     private final Consumer<Room> onDelete;
+    private final JButton addRoom = UiStyle.button("＋ Add room", true);
     private Room selectedRoom;
+    private boolean adminMode = true;
 
     RoomsPanel(Runnable onAdd, Consumer<Room> onSelect, Consumer<Room> onEdit, Consumer<Room> onDelete) {
         this.onSelect = onSelect;
@@ -42,7 +45,7 @@ final class RoomsPanel extends JPanel {
         heading.setOpaque(false);
         JPanel headingText = new JPanel(new GridLayout(0, 1, 0, 5));
         headingText.setOpaque(false);
-        JLabel title = new JLabel("Rooms");
+        JLabel title = new JLabel("Your rooms");
         title.setFont(new Font("SansSerif", Font.BOLD, 19));
         title.setForeground(UiStyle.TEXT);
         JLabel subtitle = new JLabel("Organize devices by room and floor.");
@@ -51,9 +54,8 @@ final class RoomsPanel extends JPanel {
         headingText.add(title);
         headingText.add(subtitle);
         heading.add(headingText, BorderLayout.WEST);
-        JButton add = UiStyle.button("＋ Add room", true);
-        add.addActionListener(event -> onAdd.run());
-        heading.add(add, BorderLayout.EAST);
+        addRoom.addActionListener(event -> onAdd.run());
+        heading.add(addRoom, BorderLayout.EAST);
         add(heading, BorderLayout.NORTH);
 
         roomGrid.setOpaque(false);
@@ -61,7 +63,11 @@ final class RoomsPanel extends JPanel {
         roomScroll.setBorder(BorderFactory.createEmptyBorder());
         roomScroll.getViewport().setOpaque(false);
         roomScroll.setOpaque(false);
+        roomScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        roomScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
         roomCards.add(roomScroll, BorderLayout.CENTER);
+        roomCards.setMinimumSize(new java.awt.Dimension(0, 170));
+        roomCards.setPreferredSize(new java.awt.Dimension(600, 270));
 
         detail.setLayout(new BorderLayout(0, 10));
         JPanel detailHeading = new JPanel(new BorderLayout());
@@ -78,40 +84,69 @@ final class RoomsPanel extends JPanel {
         detail.add(detailHeading, BorderLayout.NORTH);
 
         JTable deviceTable = new JTable(deviceModel);
-        deviceTable.setRowHeight(34);
-        deviceTable.setFont(new Font("SansSerif", Font.PLAIN, 12));
-        deviceTable.setShowVerticalLines(false);
-        deviceTable.setGridColor(UiStyle.BORDER);
-        deviceTable.getTableHeader().setFont(new Font("SansSerif", Font.BOLD, 10));
-        deviceTable.getTableHeader().setForeground(UiStyle.MUTED);
-        deviceTable.getTableHeader().setBackground(UiStyle.TABLE_HEADER);
+        UiStyle.styleTable(deviceTable);
         JScrollPane deviceScroll = new JScrollPane(deviceTable);
         deviceScroll.setBorder(BorderFactory.createLineBorder(UiStyle.BORDER));
+        deviceScroll.getViewport().setBackground(UiStyle.SURFACE);
         detail.add(deviceScroll, BorderLayout.CENTER);
+        detail.setMinimumSize(new java.awt.Dimension(0, 170));
+        detail.setPreferredSize(new java.awt.Dimension(600, 230));
 
-        JPanel center = new JPanel(new BorderLayout(0, 14));
-        center.setOpaque(false);
-        center.add(roomCards, BorderLayout.CENTER);
-        center.add(detail, BorderLayout.SOUTH);
-        add(center, BorderLayout.CENTER);
+        JSplitPane content = new JSplitPane(JSplitPane.VERTICAL_SPLIT, roomCards, detail);
+        content.setResizeWeight(0.55);
+        content.setDividerSize(9);
+        content.setContinuousLayout(true);
+        content.setBorder(null);
+        content.setOpaque(false);
+        content.setBackground(UiStyle.WORKSPACE);
+        add(content, BorderLayout.CENTER);
+        javax.swing.SwingUtilities.invokeLater(() ->
+            content.setDividerLocation(Math.max(180, getHeight() * 0.54)));
+    }
+
+    void setAdminMode(boolean admin) {
+        adminMode = admin;
+        addRoom.setVisible(admin);
+        setRooms(java.util.List.of());
     }
 
     void setRooms(List<Room> rooms) {
         Integer selectedId = selectedRoom == null ? null : selectedRoom.id();
         roomGrid.removeAll();
         if (rooms.isEmpty()) {
-            roomGrid.add(message("No rooms found. Add a room to get started."));
+            roomGrid.add(message(adminMode ? "No rooms found. Add a room to get started."
+                : "No rooms are available yet. Ask an administrator to add a room."));
             selectedRoom = null;
             setSelectedRoom(null, List.of());
         } else {
+            selectedRoom = null;
             for (Room room : rooms) {
                 roomGrid.add(roomCard(room));
                 if (selectedId != null && selectedId == room.id()) selectedRoom = room;
             }
+
             if (selectedId != null && selectedRoom == null) {
                 setSelectedRoom(null, List.of());
             }
         }
+        roomGrid.revalidate();
+        roomGrid.repaint();
+    }
+
+    void setLoading() {
+        roomGrid.removeAll();
+        roomGrid.add(message("Loading rooms from MySQL…"));
+        selectedRoom = null;
+        setSelectedRoom(null, List.of());
+        roomGrid.revalidate();
+        roomGrid.repaint();
+    }
+
+    void setLoadError(String details) {
+        roomGrid.removeAll();
+        roomGrid.add(message(details));
+        selectedRoom = null;
+        setSelectedRoom(null, List.of());
         roomGrid.revalidate();
         roomGrid.repaint();
     }
@@ -121,6 +156,7 @@ final class RoomsPanel extends JPanel {
         detailTitle.setText(room.name() + " devices");
         detailStatus.setText("Loading devices from MySQL…");
         deviceModel.setRowCount(0);
+        deviceModel.addRow(new Object[]{"Loading room devices…", "", "", ""});
     }
 
     void setSelectedRoom(Room room, List<Device> devices) {
@@ -129,6 +165,7 @@ final class RoomsPanel extends JPanel {
         if (room == null) {
             detailTitle.setText("Select a room to view its devices");
             detailStatus.setText("Room device details are loaded from MySQL.");
+            deviceModel.addRow(new Object[]{"Choose a room card to view its devices.", "", "", ""});
             return;
         }
         detailTitle.setText(room.name() + " devices");
@@ -145,6 +182,8 @@ final class RoomsPanel extends JPanel {
     private JPanel roomCard(Room room) {
         JPanel card = UiStyle.card();
         card.setLayout(new BorderLayout(0, 12));
+        card.setMinimumSize(new java.awt.Dimension(250, 152));
+        card.setPreferredSize(new java.awt.Dimension(360, 170));
         JPanel titleLine = new JPanel(new BorderLayout(8, 0));
         titleLine.setOpaque(false);
         JLabel icon = new JLabel("⌂");
@@ -168,6 +207,8 @@ final class RoomsPanel extends JPanel {
         JButton view = UiStyle.button("View devices", true);
         JButton edit = UiStyle.button("Edit", false);
         JButton delete = UiStyle.button("Delete", false);
+        edit.setVisible(adminMode);
+        delete.setVisible(adminMode);
         view.addActionListener(event -> onSelect.accept(room));
         edit.addActionListener(event -> onEdit.accept(room));
         delete.addActionListener(event -> onDelete.accept(room));

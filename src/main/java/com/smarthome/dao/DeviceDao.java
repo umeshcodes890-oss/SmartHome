@@ -11,11 +11,21 @@ import java.time.ZoneOffset;
 import java.util.*;
 
 public class DeviceDao {
+    private final ConnectionProvider connections;
+
+    public DeviceDao() {
+        this(Database::getConnection);
+    }
+
+    DeviceDao(ConnectionProvider connections) {
+        this.connections = Objects.requireNonNull(connections);
+    }
+
     public List<Device> findAll() throws SQLException {
         String sql = "SELECT d.device_id,d.device_name,d.device_type,r.room_name,d.status,d.power_watts " +
                      "FROM devices d JOIN rooms r ON r.room_id=d.room_id ORDER BY d.device_id DESC";
         List<Device> result = new ArrayList<>();
-        try (Connection c=Database.getConnection(); PreparedStatement ps=c.prepareStatement(sql); ResultSet rs=ps.executeQuery()) {
+        try (Connection c=connections.getConnection(); PreparedStatement ps=c.prepareStatement(sql); ResultSet rs=ps.executeQuery()) {
             while(rs.next()) result.add(new Device(rs.getInt(1),rs.getString(2),rs.getString(3),
                 rs.getString(4),rs.getString(5),rs.getBigDecimal(6)));
         }
@@ -26,7 +36,7 @@ public class DeviceDao {
         String sql = "SELECT d.device_id,d.device_name,d.device_type,r.room_name,d.status,d.power_watts " +
             "FROM devices d JOIN rooms r ON r.room_id=d.room_id WHERE r.room_id=? ORDER BY d.device_name";
         List<Device> result = new ArrayList<>();
-        try (Connection connection = Database.getConnection();
+        try (Connection connection = connections.getConnection();
              PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setInt(1, roomId);
             try (ResultSet results = statement.executeQuery()) {
@@ -40,11 +50,15 @@ public class DeviceDao {
     }
 
     public void setStatus(int id, String status) throws SQLException {
+        setStatus(id, status, null);
+    }
+
+    public void setStatus(int id, String status, Long actorUserId) throws SQLException {
         if (!"ON".equals(status) && !"OFF".equals(status)) throw new IllegalArgumentException("Invalid status");
-        try (Connection c = Database.getConnection()) {
+        try (Connection c = connections.getConnection()) {
             c.setAutoCommit(false);
             try {
-                setStatusInTransaction(c, id, status, utcNow());
+                setStatusInTransaction(c, id, status, utcNow(), actorUserId);
                 c.commit();
             } catch (SQLException | RuntimeException ex) {
                 rollback(c, ex);
@@ -55,11 +69,16 @@ public class DeviceDao {
 
     public void setStatusInTransaction(Connection connection, int id, String status, LocalDateTime changedAt)
             throws SQLException {
+        setStatusInTransaction(connection, id, status, changedAt, null);
+    }
+
+    public void setStatusInTransaction(Connection connection, int id, String status, LocalDateTime changedAt,
+            Long actorUserId) throws SQLException {
         if (!"ON".equals(status) && !"OFF".equals(status)) throw new IllegalArgumentException("Invalid status");
         DeviceSnapshot current = findSnapshot(connection, id, true);
         if (current == null) throw new SQLException("Scheduled device no longer exists.");
         if (current.status().equals(status)) {
-            logActivity(connection, "DEVICE_STATUS", current, null, utcNow(),
+            logActivity(connection, "DEVICE_STATUS", actorUserId, current, null, utcNow(),
                 "ON/OFF action completed; device was already " + status + ".");
             return;
         }
@@ -69,14 +88,19 @@ public class DeviceDao {
             current.roomId(), current.roomName(), status, current.watts());
         recordStatus(connection, updated, changedAt);
         if ("ON".equals(status)) openUsageSession(connection, updated, changedAt);
-        logActivity(connection, "DEVICE_STATUS", updated, null, changedAt,
+        logActivity(connection, "DEVICE_STATUS", actorUserId, updated, null, changedAt,
             "Status changed from " + current.status() + " to " + status + ".");
     }
 
     public void add(String name, String type, int roomId, String status, BigDecimal watts) throws SQLException {
+        add(name, type, roomId, status, watts, null);
+    }
+
+    public void add(String name, String type, int roomId, String status, BigDecimal watts, Long actorUserId)
+            throws SQLException {
         validateDevice(name, type, status, watts);
         String sql = "INSERT INTO devices(device_name,device_type,room_id,status,power_watts) VALUES(?,?,?,?,?)";
-        try (Connection c = Database.getConnection()) {
+        try (Connection c = connections.getConnection()) {
             c.setAutoCommit(false);
             try {
             lockDeviceNames(c);
@@ -96,7 +120,7 @@ public class DeviceDao {
                 recordStatus(c, created, startedAt);
                 openUsageSession(c, created, startedAt);
             }
-            logActivity(c, "DEVICE_CREATED", created, null, utcNow(),
+            logActivity(c, "DEVICE_CREATED", actorUserId, created, null, utcNow(),
                 "Device created as " + created.status() + " in " + created.roomName()
                     + " with rated power " + created.watts().toPlainString() + " W.");
             c.commit();
@@ -108,8 +132,13 @@ public class DeviceDao {
     }
 
     public void update(int id, String name, String type, int roomId, BigDecimal watts) throws SQLException {
+        update(id, name, type, roomId, watts, null);
+    }
+
+    public void update(int id, String name, String type, int roomId, BigDecimal watts, Long actorUserId)
+            throws SQLException {
         validateDevice(name, type, "OFF", watts);
-        try (Connection c = Database.getConnection()) {
+        try (Connection c = connections.getConnection()) {
             c.setAutoCommit(false);
             try {
             lockDeviceNames(c);
@@ -132,7 +161,7 @@ public class DeviceDao {
                 openUsageSession(c, updated, changedAt);
             }
             DeviceSnapshot updated = findSnapshot(c, id, false);
-            logActivity(c, "DEVICE_UPDATED", updated, null, changedAt,
+            logActivity(c, "DEVICE_UPDATED", actorUserId, updated, null, changedAt,
                 "Device details updated: name " + current.name() + " → " + updated.name()
                     + ", type " + current.type() + " → " + updated.type()
                     + ", room " + current.roomName() + " → " + updated.roomName()
@@ -147,9 +176,12 @@ public class DeviceDao {
     }
 
     public int setAllStatus(String status) throws SQLException {
+        return setAllStatus(status, null);
+    }
+
+    public int setAllStatus(String status, Long actorUserId) throws SQLException {
         if (!"ON".equals(status) && !"OFF".equals(status)) throw new IllegalArgumentException("Invalid status");
-        try (Connection c = Database.getConnection()) {
-            boolean autoCommit = c.getAutoCommit();
+        try (Connection c = connections.getConnection()) {
             c.setAutoCommit(false);
             try {
                 List<DeviceSnapshot> changes = new ArrayList<>();
@@ -169,20 +201,18 @@ public class DeviceDao {
                         current.roomId(), current.roomName(), status, current.watts());
                     recordStatus(c, updated, changedAt);
                     if ("ON".equals(status)) openUsageSession(c, updated, changedAt);
-                    logActivity(c, "DEVICE_STATUS", updated, null, changedAt,
+                    logActivity(c, "DEVICE_STATUS", actorUserId, updated, null, changedAt,
                         "Bulk action changed status from " + current.status() + " to " + status + ".");
                 }
                 c.commit();
                 return changes.size();
-            } catch (SQLException ex) {
+            } catch (SQLException | RuntimeException ex) {
                 try {
                     c.rollback();
                 } catch (SQLException rollbackError) {
                     ex.addSuppressed(rollbackError);
                 }
                 throw ex;
-            } finally {
-                c.setAutoCommit(autoCommit);
             }
         }
     }
@@ -208,10 +238,10 @@ public class DeviceDao {
         }
     }
 
-    private void logActivity(Connection connection, String eventType, DeviceSnapshot device,
+    private void logActivity(Connection connection, String eventType, Long actorUserId, DeviceSnapshot device,
             Long scheduleId, LocalDateTime occurredAt, String details) throws SQLException {
-        ActivityLogDao.insert(connection, ActivityLog.success(eventType, (long) device.id(), device.name(),
-            scheduleId, occurredAt.toInstant(ZoneOffset.UTC), details));
+        ActivityLogDao.insert(connection, ActivityLog.success(eventType, actorUserId, (long) device.id(),
+            device.name(), scheduleId, occurredAt.toInstant(ZoneOffset.UTC), details));
     }
 
     private void lockDeviceNames(Connection c) throws SQLException {
@@ -334,7 +364,7 @@ public class DeviceDao {
 
     public List<String> findRoomNames() throws SQLException {
         List<String> rooms = new ArrayList<>();
-        try (Connection c = Database.getConnection();
+        try (Connection c = connections.getConnection();
              PreparedStatement ps = c.prepareStatement("SELECT room_name FROM rooms ORDER BY room_name");
              ResultSet rs = ps.executeQuery()) {
             while (rs.next()) rooms.add(rs.getString(1));
@@ -343,7 +373,11 @@ public class DeviceDao {
     }
 
     public void delete(int id) throws SQLException {
-        try (Connection c = Database.getConnection()) {
+        delete(id, null);
+    }
+
+    public void delete(int id, Long actorUserId) throws SQLException {
+        try (Connection c = connections.getConnection()) {
             c.setAutoCommit(false);
             try {
                 DeviceSnapshot current = findSnapshot(c, id, true);
@@ -355,7 +389,7 @@ public class DeviceDao {
                         current.roomId(), current.roomName(), "OFF", current.watts());
                     recordStatus(c, off, changedAt);
                 }
-                logActivity(c, "DEVICE_DELETED", current, null, utcNow(),
+                logActivity(c, "DEVICE_DELETED", actorUserId, current, null, utcNow(),
                     "Device deleted from " + current.roomName() + " with status " + current.status() + ".");
                 try (PreparedStatement ps = c.prepareStatement("DELETE FROM devices WHERE device_id=?")) {
                     ps.setInt(1, id);
@@ -371,7 +405,7 @@ public class DeviceDao {
 
     public Map<String,Integer> getRoomIds() throws SQLException {
         Map<String,Integer> rooms=new LinkedHashMap<>();
-        try(Connection c=Database.getConnection(); PreparedStatement ps=c.prepareStatement("SELECT room_id,room_name FROM rooms ORDER BY room_name");
+        try(Connection c=connections.getConnection(); PreparedStatement ps=c.prepareStatement("SELECT room_id,room_name FROM rooms ORDER BY room_name");
             ResultSet rs=ps.executeQuery()) {
             while(rs.next()) rooms.put(rs.getString("room_name"),rs.getInt("room_id"));
         }
@@ -384,7 +418,7 @@ public class DeviceDao {
                      "FROM rooms r LEFT JOIN devices d ON d.room_id=r.room_id " +
                      "GROUP BY r.room_id, r.room_name ORDER BY r.room_name";
         List<RoomSummary> result = new ArrayList<>();
-        try (Connection c = Database.getConnection();
+        try (Connection c = connections.getConnection();
              PreparedStatement ps = c.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {

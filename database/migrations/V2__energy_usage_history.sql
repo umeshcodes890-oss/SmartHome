@@ -1,3 +1,5 @@
+-- Requires smart_home_db to contain the existing rooms and devices tables.
+CREATE DATABASE IF NOT EXISTS smart_home_db;
 USE smart_home_db;
 
 CREATE TABLE IF NOT EXISTS energy_usage_sessions (

@@ -11,6 +11,7 @@ import java.util.List;
 import javax.swing.JButton;
 import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
+import javax.swing.plaf.basic.BasicButtonUI;
 
 final class NotificationPanel extends JButton {
     private static final int MAX_NOTIFICATIONS = 30;
@@ -23,6 +24,12 @@ final class NotificationPanel extends JButton {
         setFont(new Font("SansSerif", Font.BOLD, 11));
         setForeground(UiStyle.TEXT);
         setBackground(UiStyle.SURFACE);
+        setOpaque(true);
+        setContentAreaFilled(true);
+        setUI(new BasicButtonUI());
+        setBorder(javax.swing.BorderFactory.createCompoundBorder(
+            javax.swing.BorderFactory.createLineBorder(UiStyle.BORDER),
+            javax.swing.BorderFactory.createEmptyBorder(8, 12, 8, 12)));
         setFocusPainted(false);
         addActionListener(event -> showRecent());
     }

@@ -10,6 +10,7 @@ import java.util.Set;
 public record DeviceSchedule(
     long id,
     int deviceId,
+    Long createdByUserId,
     String deviceName,
     String scheduleName,
     String action,

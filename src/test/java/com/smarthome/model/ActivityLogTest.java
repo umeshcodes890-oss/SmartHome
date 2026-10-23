@@ -27,7 +27,7 @@ class ActivityLogTest {
         assertEquals("Hall Light", entry.deviceName());
         assertEquals("Status changed from OFF to ON.", entry.details());
         assertTrue(insert.sql().contains("INSERT INTO activity_logs"));
-        assertEquals("SUCCESS", insert.parameters().get(6));
+        assertEquals("SUCCESS", insert.parameters().get(7));
     }
 
     @Test
@@ -39,7 +39,7 @@ class ActivityLogTest {
         assertEquals(ActivityLog.Outcome.FAILED, entry.outcome());
         assertEquals("Could not update device: database unavailable.", entry.details());
         assertTrue(insert.sql().contains("INSERT INTO activity_logs"));
-        assertEquals("FAILED", insert.parameters().get(6));
+        assertEquals("FAILED", insert.parameters().get(7));
     }
 
     @Test

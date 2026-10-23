@@ -8,8 +8,6 @@ import java.awt.Component;
 import java.awt.Dialog;
 import java.awt.Font;
 import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
-import java.awt.Insets;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -48,8 +46,7 @@ final class ScheduleDialog {
             existing == null ? "Create schedule" : "Edit schedule", Dialog.ModalityType.APPLICATION_MODAL);
         dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         dialog.setLayout(new BorderLayout(0, 10));
-        JPanel form = new JPanel(new GridBagLayout());
-        form.setBorder(BorderFactory.createEmptyBorder(18, 20, 8, 20));
+        JPanel form = UiStyle.formPanel();
 
         JComboBox<DeviceOption> device = new JComboBox<>();
         for (Device item : devices) device.addItem(new DeviceOption(item.getId(), item.getName()));
@@ -72,13 +69,13 @@ final class ScheduleDialog {
         }
         javax.swing.JTextField name = new javax.swing.JTextField(existing == null ? "" : existing.scheduleName(), 22);
 
-        addField(form, 0, "Schedule name", name);
-        addField(form, 1, "Device", device);
-        addField(form, 2, "Action", action);
-        addField(form, 3, "Start date", date);
-        addField(form, 4, "Local time", time);
-        addField(form, 5, "Repeat", repeat);
-        addField(form, 6, "Weekdays", weekdayPanel);
+        UiStyle.addFormField(form, 0, "Schedule name", name);
+        UiStyle.addFormField(form, 1, "Device", device);
+        UiStyle.addFormField(form, 2, "Action", action);
+        UiStyle.addFormField(form, 3, "Start date", date);
+        UiStyle.addFormField(form, 4, "Local time", time);
+        UiStyle.addFormField(form, 5, "Repeat", repeat);
+        UiStyle.addFormField(form, 6, "Weekdays", weekdayPanel);
         JLabel timezone = new JLabel("Times use " + zone.getId() + " local time");
         timezone.setForeground(UiStyle.MUTED);
         timezone.setFont(new Font("SansSerif", Font.PLAIN, 11));
@@ -163,21 +160,6 @@ final class ScheduleDialog {
         dialog.setLocationRelativeTo(parent);
         dialog.setVisible(true);
         return Optional.ofNullable(result[0]);
-    }
-
-    private static void addField(JPanel panel, int row, String label, Component field) {
-        GridBagConstraints caption = constraints(row, 0);
-        caption.anchor = GridBagConstraints.LINE_START;
-        caption.insets = new Insets(7, 0, 7, 12);
-        JLabel text = new JLabel(label);
-        text.setForeground(UiStyle.MUTED);
-        panel.add(text, caption);
-        GridBagConstraints input = constraints(row, 1);
-        input.weightx = 1;
-        input.fill = GridBagConstraints.HORIZONTAL;
-        input.insets = new Insets(7, 0, 7, 0);
-        field.setFont(new Font("SansSerif", Font.PLAIN, 12));
-        panel.add(field, input);
     }
 
     private static GridBagConstraints constraints(int row, int column) {

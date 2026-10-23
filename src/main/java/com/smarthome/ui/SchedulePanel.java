@@ -38,6 +38,10 @@ final class SchedulePanel extends JPanel {
     private final JButton edit = UiStyle.button("Edit", false);
     private final JButton toggle = UiStyle.button("Disable", false);
     private final JButton delete = UiStyle.button("Delete", false);
+    private final JButton addButton = UiStyle.button("＋  Create schedule", true);
+    private final JLabel state = new JLabel("Schedules run while this application is open");
+    private final JLabel scheduleTableState = new JLabel("Schedule data is loaded from MySQL.");
+    private final JLabel historyState = new JLabel("Execution history is loaded from MySQL.");
 
     SchedulePanel(Runnable onAdd, Consumer<DeviceSchedule> onEdit,
             Consumer<DeviceSchedule> onToggle, Consumer<DeviceSchedule> onDelete, Runnable onRefresh) {
@@ -54,31 +58,33 @@ final class SchedulePanel extends JPanel {
         card.setLayout(new BorderLayout(0, 12));
         JPanel toolbar = new JPanel(new BorderLayout(0, 8));
         toolbar.setOpaque(false);
-        JLabel caption = new JLabel("Schedules run while this application is open");
-        caption.setForeground(UiStyle.MUTED);
-        caption.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        state.setForeground(UiStyle.MUTED);
+        state.setFont(new Font("SansSerif", Font.PLAIN, 12));
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         actions.setOpaque(false);
-        JButton add = UiStyle.button("＋  Create schedule", true);
         JButton refresh = UiStyle.button("Refresh", false);
-        actions.add(add);
+        actions.add(addButton);
         actions.add(edit);
         actions.add(toggle);
         actions.add(delete);
         actions.add(refresh);
-        toolbar.add(caption, BorderLayout.NORTH);
+        toolbar.add(state, BorderLayout.NORTH);
         toolbar.add(actions, BorderLayout.SOUTH);
 
         configureTable(schedules);
         configureTable(history);
         JTabbedPane tabs = new JTabbedPane();
-        tabs.addTab("Schedules", new JScrollPane(schedules));
-        tabs.addTab("Execution history", new JScrollPane(history));
+        scheduleTableState.setForeground(UiStyle.MUTED);
+        scheduleTableState.setFont(new Font("SansSerif", Font.PLAIN, 11));
+        tabs.addTab("Schedules", tableTab(schedules, scheduleTableState));
+        historyState.setForeground(UiStyle.MUTED);
+        historyState.setFont(new Font("SansSerif", Font.PLAIN, 11));
+        tabs.addTab("Execution history", tableTab(history, historyState));
         card.add(toolbar, BorderLayout.NORTH);
         card.add(tabs, BorderLayout.CENTER);
         add(card, BorderLayout.CENTER);
 
-        add.addActionListener(event -> onAdd.run());
+        addButton.addActionListener(event -> onAdd.run());
         edit.addActionListener(event -> {
             DeviceSchedule selected = selectedSchedule();
             if (selected != null) onEdit.accept(selected);
@@ -99,9 +105,19 @@ final class SchedulePanel extends JPanel {
         updateActions();
     }
 
+    void setAdminMode(boolean admin) {
+        addButton.setVisible(admin);
+        edit.setVisible(admin);
+        toggle.setVisible(admin);
+        delete.setVisible(admin);
+    }
+
     void setSchedules(List<DeviceSchedule> values) {
         schedules.clearSelection();
         scheduleModel.setSchedules(values);
+        state.setText(values.isEmpty() ? "No schedules yet. Create a schedule to automate a device."
+            : values.size() + " schedule(s) loaded.");
+        scheduleTableState.setText(state.getText());
         updateActions();
     }
 
@@ -114,6 +130,28 @@ final class SchedulePanel extends JPanel {
                 execution.details() == null ? "" : execution.details()
             });
         }
+        historyState.setText(values.isEmpty() ? "No schedule executions have been recorded yet."
+            : values.size() + " execution record(s) loaded.");
+    }
+
+    void setLoading() {
+        state.setText("Loading schedules…");
+        scheduleTableState.setText("Loading schedules…");
+        historyState.setText("Loading execution history…");
+    }
+
+    void setLoadError(String message) {
+        state.setText(message);
+        scheduleTableState.setText(message);
+        historyState.setText(message);
+    }
+
+    private static JPanel tableTab(JTable table, JLabel state) {
+        JPanel panel = new JPanel(new BorderLayout(0, 8));
+        panel.setOpaque(false);
+        panel.add(state, BorderLayout.NORTH);
+        panel.add(new JScrollPane(table), BorderLayout.CENTER);
+        return panel;
     }
 
     private DeviceSchedule selectedSchedule() {
@@ -134,16 +172,7 @@ final class SchedulePanel extends JPanel {
     }
 
     private static void configureTable(JTable table) {
-        table.setRowHeight(34);
-        table.setFont(new Font("SansSerif", Font.PLAIN, 12));
-        table.setForeground(UiStyle.TEXT);
-        table.setBackground(UiStyle.SURFACE);
-        table.setGridColor(UiStyle.BORDER);
-        table.setSelectionBackground(UiStyle.BLUE_PALE);
-        table.setSelectionForeground(UiStyle.TEXT);
-        table.getTableHeader().setFont(new Font("SansSerif", Font.BOLD, 11));
-        table.getTableHeader().setForeground(UiStyle.MUTED);
-        table.getTableHeader().setBackground(UiStyle.TABLE_HEADER);
+        UiStyle.styleTable(table);
         table.setAutoCreateRowSorter(true);
     }
 

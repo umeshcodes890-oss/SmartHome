@@ -74,7 +74,7 @@ final class EnergyChartPanel extends JPanel {
             int height = (int) Math.round(bucket.kilowattHours().doubleValue() / maxValue * (plotHeight - 2));
             int x = (int) Math.round(left + index * slotWidth + (slotWidth - barWidth) / 2);
             int y = bottom - height;
-            g.setColor(new Color(220, 238, 233));
+            g.setColor(UiStyle.BLUE_PALE);
             g.fillRoundRect(x, y, barWidth, Math.max(2, height), 6, 6);
             g.setColor(UiStyle.BLUE);
             g.fillRoundRect(x, y, barWidth, Math.max(2, Math.min(height, 5)), 6, 6);
